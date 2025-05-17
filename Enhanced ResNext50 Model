@@ -9,6 +9,8 @@ from tqdm import tqdm
 from tensorflow.keras.models import load_model
 from mealpy.swarm_based import CSO  # Cat Swarm Optimization
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+from sklearn.metrics import roc_auc_score, cohen_kappa_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.preprocessing import label_binarize
 
 # Swish activation function
 class Swish(nn.Module):
@@ -196,6 +198,55 @@ def objective_function(hyperparams):
     val_loss = history['val_loss'][-1]
     print(f"Validation loss: {val_loss:.4f}")
     return val_loss
+def evaluate_model_metrics(model, dataloader, num_classes, device='cuda'):
+    model.eval()
+    all_preds = []
+    all_probs = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            outputs = model(inputs)
+            probs = F.softmax(outputs, dim=1)
+            _, preds = torch.max(probs, 1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())
+
+    # Convert to numpy arrays
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+    all_probs = np.array(all_probs)
+
+    # Metrics
+    acc = accuracy_score(all_labels, all_preds)
+    kappa = cohen_kappa_score(all_labels, all_preds)
+    conf_matrix = confusion_matrix(all_labels, all_preds)
+
+    # ROC-AUC (one-vs-rest for multi-class)
+    all_labels_bin = label_binarize(all_labels, classes=list(range(num_classes)))
+    roc_auc = roc_auc_score(all_labels_bin, all_probs, multi_class='ovr')
+
+    print(f"\nAccuracy: {acc:.4f}")
+    print(f"Cohen's Kappa: {kappa:.4f}")
+    print(f"ROC-AUC Score: {roc_auc:.4f}")
+    print("\nClassification Report:")
+    print(classification_report(all_labels, all_preds))
+
+    # Confusion Matrix Plot
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Greens')
+    plt.title("Confusion Matrix")
+    plt.xlabel("Predicted Label")
+    plt.ylabel("True Label")
+    plt.tight_layout()
+    plt.show()
+
+evaluate_model_metrics(final_model, val_loader, num_classes=3, device='cuda')
 
 # Define CSO problem
 problem = {
